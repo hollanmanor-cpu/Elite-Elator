@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Conversation = { id: string; name: string; lastMessage: string; otherUserId: string }
-type Message = { id: string; sender_id: string; content: string; created_at: string }
+type Message = { id: string; sender_id: string; content: string; created_at: string; conversation_id: string }
 type SearchResult = { id: string; username: string; email: string }
 
 export default function ChatPage() {
@@ -84,6 +84,58 @@ export default function ChatPage() {
     loadConversations()
   }, [loadConversations])
 
+  // Watch for being added to a new conversation, and refresh the sidebar live
+  useEffect(() => {
+    if (!currentUserId) return
+
+    const channel = supabase
+      .channel(`participant-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'conversation_participants',
+          filter: `user_id=eq.${currentUserId}`,
+        },
+        () => {
+          loadConversations()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [currentUserId, loadConversations])
+
+  // Keep sidebar "last message" preview updated live for all conversations
+  useEffect(() => {
+    if (!currentUserId || conversations.length === 0) return
+
+    const channel = supabase
+      .channel(`sidebar-messages-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new as Message
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === newMsg.conversation_id
+                ? { ...c, lastMessage: newMsg.content }
+                : c
+            )
+          )
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [currentUserId, conversations.length])
+
   // Load messages for the selected conversation + subscribe to realtime updates
   useEffect(() => {
     if (!selectedId) return
@@ -91,7 +143,7 @@ export default function ChatPage() {
     const loadMessages = async () => {
       const { data } = await supabase
         .from('messages')
-        .select('id, sender_id, content, created_at')
+        .select('id, sender_id, content, created_at, conversation_id')
         .eq('conversation_id', selectedId)
         .order('created_at', { ascending: true })
       setMessages(data ?? [])

@@ -19,9 +19,43 @@
   }
 }
 
-body {
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4ecf7 100%);
+/* Reset default browser margin — this was causing the mobile side gap */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
   min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body {
+  background-image: url('/chat-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  position: relative;
+}
+
+/* Subtle animated glow pass over the circuit background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(0, 255, 200, 0.06) 45%, transparent 55%);
+  background-size: 200% 200%;
+  animation: circuitGlow 8s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes circuitGlow {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
 }

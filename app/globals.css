@@ -38,8 +38,10 @@ body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background: linear-gradient(120deg, transparent 0%, rgba(0, 255, 200, 0.06) 45%, transparent 55%);
-  background-size: 200% 200%;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)),
+    linear-gradient(120deg, transparent 0%, rgba(0, 255, 200, 0.06) 45%, transparent 55%);
+  background-size: cover, 200% 200%;
   animation: circuitGlow 8s ease-in-out infinite;
   pointer-events: none;
   z-index: 0;
@@ -51,7 +53,6 @@ body::before {
   100% { background-position: 0% 0%; }
 }
 
-/* Force readable input fields regardless of system dark/light mode */
 input {
   color: #000 !important;
   background-color: #fff !important;

@@ -193,6 +193,7 @@ export default function ChatPage() {
     }
   }, [selectedId])
 
+  // Read-status tracking: no server-side filter, we match manually — logs to console for debugging
   useEffect(() => {
     if (!selectedId || !selectedOtherUserId) return
 
@@ -208,18 +209,21 @@ export default function ChatPage() {
     loadOtherReadStatus()
 
     const channel = supabase
-      .channel(`read-status-${selectedId}`)
+      .channel(`read-status-${selectedId}-${Date.now()}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `conversation_id=eq.${selectedId}` },
+        { event: '*', schema: 'public', table: 'conversation_participants' },
         (payload) => {
-          const updated = payload.new as { user_id: string; last_read_at: string }
-          if (updated.user_id === selectedOtherUserId) {
+          console.log('participant change received:', payload)
+          const updated = payload.new as { conversation_id: string; user_id: string; last_read_at: string }
+          if (updated?.conversation_id === selectedId && updated?.user_id === selectedOtherUserId) {
             setOtherUserLastReadAt(updated.last_read_at)
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('read-status channel status:', status)
+      })
 
     return () => {
       supabase.removeChannel(channel)
@@ -617,12 +621,7 @@ export default function ChatPage() {
                     >
                       {time}
                       {isMe && (
-                        <svg
-                          width="16"
-                          height="11"
-                          viewBox="0 0 16 11"
-                          style={{ display: 'inline-block' }}
-                        >
+                        <svg width="16" height="11" viewBox="0 0 16 11" style={{ display: 'inline-block' }}>
                           <path
                             d="M1 5.5L4.5 9L11 1.5"
                             fill="none"

@@ -23,9 +23,14 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (!error) user = data.user
+  } catch {
+    // Invalid/expired token — treat as logged out instead of crashing
+    user = null
+  }
 
   if (!user && request.nextUrl.pathname.startsWith('/chat')) {
     const url = request.nextUrl.clone()

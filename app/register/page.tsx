@@ -21,9 +21,7 @@ export default function RegisterPage() {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { username },
-      },
+      options: { data: { username } },
     })
 
     setLoading(false)
@@ -36,9 +34,21 @@ export default function RegisterPage() {
     router.push('/chat')
   }
 
+  const inputStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    marginBottom: 10,
+    padding: 10,
+    borderRadius: 8,
+    border: '1px solid #ccc',
+    color: '#000000',
+    backgroundColor: '#ffffff',
+    fontSize: 15,
+  }
+
   return (
-    <div style={{ maxWidth: 400, margin: '100px auto' }}>
-      <h1>Create an account</h1>
+    <div style={{ maxWidth: 400, margin: '100px auto', padding: 24, background: 'rgba(255,255,255,0.92)', borderRadius: 12 }}>
+      <h1 style={{ color: '#000', marginBottom: 16 }}>Create an account</h1>
       <form onSubmit={handleRegister}>
         <input
           type="text"
@@ -47,7 +57,7 @@ export default function RegisterPage() {
           onChange={(e) => setUsername(e.target.value)}
           required
           minLength={3}
-          style={{ display: 'block', width: '100%', marginBottom: 10, padding: 8 }}
+          style={inputStyle}
         />
         <input
           type="email"
@@ -55,7 +65,7 @@ export default function RegisterPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          style={{ display: 'block', width: '100%', marginBottom: 10, padding: 8 }}
+          style={inputStyle}
         />
         <input
           type="password"
@@ -64,14 +74,14 @@ export default function RegisterPage() {
           onChange={(e) => setPassword(e.target.value)}
           required
           minLength={6}
-          style={{ display: 'block', width: '100%', marginBottom: 10, padding: 8 }}
+          style={inputStyle}
         />
         {error && <p style={{ color: 'red' }}>{error}</p>}
-        <button type="submit" disabled={loading} style={{ padding: 8, width: '100%' }}>
+        <button type="submit" disabled={loading} style={{ padding: 10, width: '100%', background: '#075E54', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
           {loading ? 'Creating account...' : 'Register'}
         </button>
       </form>
-      <p>Already have an account? <a href="/login">Log in</a></p>
+      <p style={{ marginTop: 12, color: '#000' }}>Already have an account? <a href="/login" style={{ color: '#075E54' }}>Log in</a></p>
     </div>
   )
 }

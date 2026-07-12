@@ -32,6 +32,8 @@ export default function ChatPage() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedName, setSelectedName] = useState<string>('')
+  const [selectedOtherUserId, setSelectedOtherUserId] = useState<string | null>(null)
+  const [otherUserLastReadAt, setOtherUserLastReadAt] = useState<string>(new Date(0).toISOString())
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [loadingConvos, setLoadingConvos] = useState(true)
@@ -191,6 +193,41 @@ export default function ChatPage() {
     }
   }, [selectedId])
 
+  // Load the other participant's last_read_at when a conversation opens,
+  // and keep it live-updated so read receipts flip in real time
+  useEffect(() => {
+    if (!selectedId || !selectedOtherUserId) return
+
+    const loadOtherReadStatus = async () => {
+      const { data } = await supabase
+        .from('conversation_participants')
+        .select('last_read_at')
+        .eq('conversation_id', selectedId)
+        .eq('user_id', selectedOtherUserId)
+        .maybeSingle()
+      setOtherUserLastReadAt(data?.last_read_at ?? new Date(0).toISOString())
+    }
+    loadOtherReadStatus()
+
+    const channel = supabase
+      .channel(`read-status-${selectedId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          const updated = payload.new as { user_id: string; last_read_at: string }
+          if (updated.user_id === selectedOtherUserId) {
+            setOtherUserLastReadAt(updated.last_read_at)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [selectedId, selectedOtherUserId])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, selectedId])
@@ -312,6 +349,7 @@ export default function ChatPage() {
       if (match) {
         setSelectedId(match.conversation_id)
         setSelectedName(user.username)
+        setSelectedOtherUserId(user.id)
         setShowNewChat(false)
         setEmailQuery('')
         setSearchResults([])
@@ -344,6 +382,7 @@ export default function ChatPage() {
     await loadConversations()
     setSelectedId(newConvo.id)
     setSelectedName(user.username)
+    setSelectedOtherUserId(user.id)
     setShowNewChat(false)
     setEmailQuery('')
     setSearchResults([])
@@ -352,6 +391,7 @@ export default function ChatPage() {
   const openConversation = async (c: Conversation) => {
     setSelectedId(c.id)
     setSelectedName(c.name)
+    setSelectedOtherUserId(c.otherUserId)
 
     setConversations((prev) =>
       prev.map((conv) => (conv.id === c.id ? { ...conv, unreadCount: 0 } : conv))
@@ -386,6 +426,7 @@ export default function ChatPage() {
     if (selectedId === conversationId) {
       setSelectedId(null)
       setSelectedName('')
+      setSelectedOtherUserId(null)
     }
     setMenuOpenFor(null)
   }
@@ -545,6 +586,8 @@ export default function ChatPage() {
               {messages.map((m) => {
                 const isMe = m.sender_id === currentUserId
                 const time = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                const isRead = isMe && m.created_at <= otherUserLastReadAt
+
                 return (
                   <div key={m.id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '60%' }}>
                     <div style={{ background: isMe ? '#DCF8C6' : '#fff', color: '#000', padding: '8px 12px', borderRadius: 8, boxShadow: '0 1px 1px rgba(0,0,0,0.1)' }}>
@@ -562,8 +605,31 @@ export default function ChatPage() {
                         m.content
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: '#999', marginTop: 2, textAlign: isMe ? 'right' : 'left' }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: '#999',
+                        marginTop: 2,
+                        textAlign: isMe ? 'right' : 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: isMe ? 'flex-end' : 'flex-start',
+                        gap: 4,
+                      }}
+                    >
                       {time}
+                      {isMe && (
+                        <span
+                          title={isRead ? 'Read' : 'Delivered'}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            background: isRead ? '#25D366' : '#FFC107',
+                            display: 'inline-block',
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
                 )

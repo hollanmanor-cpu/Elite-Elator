@@ -193,8 +193,6 @@ export default function ChatPage() {
     }
   }, [selectedId])
 
-  // Load the other participant's last_read_at when a conversation opens,
-  // and keep it live-updated so read receipts flip in real time
   useEffect(() => {
     if (!selectedId || !selectedOtherUserId) return
 
@@ -619,16 +617,29 @@ export default function ChatPage() {
                     >
                       {time}
                       {isMe && (
-                        <span
-                          title={isRead ? 'Read' : 'Delivered'}
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            background: isRead ? '#25D366' : '#FFC107',
-                            display: 'inline-block',
-                          }}
-                        />
+                        <svg
+                          width="16"
+                          height="11"
+                          viewBox="0 0 16 11"
+                          style={{ display: 'inline-block' }}
+                        >
+                          <path
+                            d="M1 5.5L4.5 9L11 1.5"
+                            fill="none"
+                            stroke={isRead ? '#25D366' : '#999'}
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M5 5.5L8.5 9L15 1.5"
+                            fill="none"
+                            stroke={isRead ? '#25D366' : '#999'}
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
                       )}
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import InstallButton from './components/InstallButton'
 
 export default function Home() {
   return (
@@ -21,6 +22,7 @@ export default function Home() {
           Register
         </Link>
       </div>
+      <InstallButton />
     </div>
   )
 }

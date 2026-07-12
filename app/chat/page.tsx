@@ -13,7 +13,14 @@ type Conversation = {
   lastReadAt: string
   lastActivity: string
 }
-type Message = { id: string; sender_id: string; content: string; created_at: string; conversation_id: string }
+type Message = {
+  id: string
+  sender_id: string
+  content: string
+  created_at: string
+  conversation_id: string
+  media_url?: string | null
+}
 type SearchResult = { id: string; username: string; email: string }
 
 export default function ChatPage() {
@@ -28,6 +35,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [loadingConvos, setLoadingConvos] = useState(true)
+  const [uploading, setUploading] = useState(false)
 
   const [showNewChat, setShowNewChat] = useState(false)
   const [emailQuery, setEmailQuery] = useState('')
@@ -162,7 +170,7 @@ export default function ChatPage() {
     const loadMessages = async () => {
       const { data } = await supabase
         .from('messages')
-        .select('id, sender_id, content, created_at, conversation_id')
+        .select('id, sender_id, content, created_at, conversation_id, media_url')
         .eq('conversation_id', selectedId)
         .order('created_at', { ascending: true })
       setMessages(data ?? [])
@@ -183,7 +191,6 @@ export default function ChatPage() {
     }
   }, [selectedId])
 
-  // Auto-scroll to the latest message whenever messages change or a chat is opened
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, selectedId])
@@ -209,6 +216,45 @@ export default function ChatPage() {
     })
 
     if (error) console.error('Send failed:', error.message)
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedId || !currentUserId) return
+
+    setUploading(true)
+
+    const fileExt = file.name.split('.').pop()
+    const filePath = `${currentUserId}/${crypto.randomUUID()}.${fileExt}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('chat-media')
+      .upload(filePath, file)
+
+    if (uploadError) {
+      setUploading(false)
+      alert('Upload failed: ' + uploadError.message)
+      return
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('chat-media')
+      .getPublicUrl(filePath)
+
+    const { error: msgError } = await supabase.from('messages').insert({
+      conversation_id: selectedId,
+      sender_id: currentUserId,
+      content: file.type.startsWith('image/') ? '📷 Photo' : '📎 File',
+      media_url: urlData.publicUrl,
+    })
+
+    setUploading(false)
+
+    if (msgError) {
+      alert('Could not send media: ' + msgError.message)
+    }
+
+    e.target.value = ''
   }
 
   const handleSearchUser = async () => {
@@ -502,7 +548,19 @@ export default function ChatPage() {
                 return (
                   <div key={m.id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '60%' }}>
                     <div style={{ background: isMe ? '#DCF8C6' : '#fff', color: '#000', padding: '8px 12px', borderRadius: 8, boxShadow: '0 1px 1px rgba(0,0,0,0.1)' }}>
-                      {m.content}
+                      {m.media_url ? (
+                        m.content === '📷 Photo' ? (
+                          <a href={m.media_url} target="_blank" rel="noopener noreferrer">
+                            <img src={m.media_url} alt="Shared media" style={{ maxWidth: 220, borderRadius: 8, display: 'block' }} />
+                          </a>
+                        ) : (
+                          <a href={m.media_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0070f3' }}>
+                            {m.content}
+                          </a>
+                        )
+                      ) : (
+                        m.content
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: '#999', marginTop: 2, textAlign: isMe ? 'right' : 'left' }}>
                       {time}
@@ -512,16 +570,27 @@ export default function ChatPage() {
               })}
               <div ref={messagesEndRef} />
             </div>
-            <div style={{ padding: 12, borderTop: '1px solid #e0e0e0', display: 'flex', gap: 8, background: '#f0f2f5' }}>
+            <div style={{ padding: 12, borderTop: '1px solid #e0e0e0', display: 'flex', gap: 8, background: '#f0f2f5', alignItems: 'center' }}>
+              <label style={{ cursor: 'pointer', fontSize: 20, padding: 4 }}>
+                📎
+                <input
+                  type="file"
+                  accept="image/*,video/*,application/pdf"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                  disabled={uploading}
+                />
+              </label>
               <input
                 type="text"
-                placeholder="Type a message"
+                placeholder={uploading ? 'Uploading...' : 'Type a message'}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                disabled={uploading}
                 style={{ flex: 1, padding: 10, border: 'none', borderRadius: 20, color: '#000' }}
               />
-              <button onClick={handleSend} style={{ padding: '8px 16px', background: '#075E54', color: '#fff', border: 'none', borderRadius: 20 }}>
+              <button onClick={handleSend} disabled={uploading} style={{ padding: '8px 16px', background: '#075E54', color: '#fff', border: 'none', borderRadius: 20 }}>
                 Send
               </button>
             </div>

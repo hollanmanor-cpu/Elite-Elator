@@ -25,7 +25,7 @@ html, body {
 }
 
 body {
-  background-image: url('/chat-bg.jpg');
+  background-image: url('/chat-bg.svg');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;

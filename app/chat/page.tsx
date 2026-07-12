@@ -168,7 +168,6 @@ export default function ChatPage() {
   const handleStartChat = async (user: SearchResult) => {
     if (!currentUserId) return
 
-    // Check if a conversation already exists between these two users
     const existing = conversations.find((c) => c.otherUserId === user.id)
     if (existing) {
       setSelectedId(existing.id)
@@ -179,22 +178,26 @@ export default function ChatPage() {
       return
     }
 
-    // Create a new conversation
     const { data: newConvo, error: convoError } = await supabase
       .from('conversations')
-      .insert({})
+      .insert({ created_by: currentUserId })
       .select()
       .single()
 
     if (convoError || !newConvo) {
-      setSearchError('Could not start conversation.')
+      setSearchError(convoError?.message || 'Could not start conversation.')
       return
     }
 
-    await supabase.from('conversation_participants').insert([
+    const { error: participantsError } = await supabase.from('conversation_participants').insert([
       { conversation_id: newConvo.id, user_id: currentUserId },
       { conversation_id: newConvo.id, user_id: user.id },
     ])
+
+    if (participantsError) {
+      setSearchError(participantsError.message)
+      return
+    }
 
     await loadConversations()
     setSelectedId(newConvo.id)

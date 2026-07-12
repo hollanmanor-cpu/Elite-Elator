@@ -27,14 +27,14 @@ export default function ChatPage() {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
 
-  // Get current logged-in user once
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null)
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setCurrentUserId(data.user.id)
     })
   }, [])
 
-  // Load the conversation list for the sidebar
   const loadConversations = useCallback(async () => {
     if (!currentUserId) return
     setLoadingConvos(true)
@@ -84,7 +84,6 @@ export default function ChatPage() {
     loadConversations()
   }, [loadConversations])
 
-  // Watch for being added to a new conversation, and refresh the sidebar live
   useEffect(() => {
     if (!currentUserId) return
 
@@ -92,15 +91,8 @@ export default function ChatPage() {
       .channel(`participant-${currentUserId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'conversation_participants',
-          filter: `user_id=eq.${currentUserId}`,
-        },
-        () => {
-          loadConversations()
-        }
+        { event: 'INSERT', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${currentUserId}` },
+        () => loadConversations()
       )
       .subscribe()
 
@@ -109,7 +101,6 @@ export default function ChatPage() {
     }
   }, [currentUserId, loadConversations])
 
-  // Keep sidebar "last message" preview updated live for all conversations
   useEffect(() => {
     if (!currentUserId || conversations.length === 0) return
 
@@ -121,11 +112,7 @@ export default function ChatPage() {
         (payload) => {
           const newMsg = payload.new as Message
           setConversations((prev) =>
-            prev.map((c) =>
-              c.id === newMsg.conversation_id
-                ? { ...c, lastMessage: newMsg.content }
-                : c
-            )
+            prev.map((c) => (c.id === newMsg.conversation_id ? { ...c, lastMessage: newMsg.content } : c))
           )
         }
       )
@@ -136,7 +123,6 @@ export default function ChatPage() {
     }
   }, [currentUserId, conversations.length])
 
-  // Load messages for the selected conversation + subscribe to realtime updates
   useEffect(() => {
     if (!selectedId) return
 
@@ -155,9 +141,7 @@ export default function ChatPage() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` },
-        (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message])
-        }
+        (payload) => setMessages((prev) => [...prev, payload.new as Message])
       )
       .subscribe()
 
@@ -186,9 +170,7 @@ export default function ChatPage() {
       content,
     })
 
-    if (error) {
-      console.error('Send failed:', error.message)
-    }
+    if (error) console.error('Send failed:', error.message)
   }
 
   const handleSearchUser = async () => {
@@ -217,6 +199,7 @@ export default function ChatPage() {
     setSearchResults(data)
   }
 
+  // Opens existing conversation if one exists, otherwise creates a new one
   const handleStartChat = async (user: SearchResult) => {
     if (!currentUserId) return
 
@@ -228,6 +211,32 @@ export default function ChatPage() {
       setEmailQuery('')
       setSearchResults([])
       return
+    }
+
+    // Double-check against the database too, in case the sidebar hasn't loaded this pair yet
+    const { data: myConvoIds } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', currentUserId)
+
+    const ids = (myConvoIds ?? []).map((r) => r.conversation_id)
+    if (ids.length > 0) {
+      const { data: match } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', user.id)
+        .in('conversation_id', ids)
+        .maybeSingle()
+
+      if (match) {
+        setSelectedId(match.conversation_id)
+        setSelectedName(user.username)
+        setShowNewChat(false)
+        setEmailQuery('')
+        setSearchResults([])
+        await loadConversations()
+        return
+      }
     }
 
     const { data: newConvo, error: convoError } = await supabase
@@ -262,6 +271,30 @@ export default function ChatPage() {
   const openConversation = (c: Conversation) => {
     setSelectedId(c.id)
     setSelectedName(c.name)
+  }
+
+  const handleDeleteChat = async (conversationId: string) => {
+    if (!currentUserId) return
+    const confirmed = window.confirm('Delete this chat? This only removes it from your side.')
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', conversationId)
+      .eq('user_id', currentUserId)
+
+    if (error) {
+      alert('Could not delete chat: ' + error.message)
+      return
+    }
+
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId))
+    if (selectedId === conversationId) {
+      setSelectedId(null)
+      setSelectedName('')
+    }
+    setMenuOpenFor(null)
   }
 
   return (
@@ -309,29 +342,66 @@ export default function ChatPage() {
           {filteredConversations.map((c) => (
             <div
               key={c.id}
-              onClick={() => openConversation(c)}
-              style={{ padding: 12, borderBottom: '1px solid #f0f0f0', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}
+              style={{
+                padding: 12,
+                borderBottom: '1px solid #f0f0f0',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                position: 'relative',
+              }}
             >
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#ccc', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600 }}>
-                {c.name[0]?.toUpperCase()}
+              <div onClick={() => openConversation(c)} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#ccc', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600 }}>
+                  {c.name[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  <div style={{ fontSize: 13, color: '#666' }}>{c.lastMessage}</div>
+                </div>
               </div>
-              <div>
-                <div style={{ fontWeight: 600 }}>{c.name}</div>
-                <div style={{ fontSize: 13, color: '#666' }}>{c.lastMessage}</div>
-              </div>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMenuOpenFor(menuOpenFor === c.id ? null : c.id)
+                }}
+                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#666', padding: 4 }}
+              >
+                ⋮
+              </button>
+
+              {menuOpenFor === c.id && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 12,
+                    top: 40,
+                    background: '#fff',
+                    border: '1px solid #ddd',
+                    borderRadius: 8,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    zIndex: 10,
+                  }}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteChat(c.id)
+                    }}
+                    style={{ padding: '8px 16px', background: 'none', border: 'none', color: '#d32f2f', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    Delete chat
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      <div
-        className="chat-main"
-        style={{
-          flex: 1,
-          display: selectedId ? 'flex' : 'none',
-          flexDirection: 'column',
-        }}
-      >
+      <div className="chat-main" style={{ flex: 1, display: selectedId ? 'flex' : 'none', flexDirection: 'column' }}>
         {selectedId ? (
           <>
             <div style={{ padding: 16, borderBottom: '1px solid #e0e0e0', background: '#075E54', color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>

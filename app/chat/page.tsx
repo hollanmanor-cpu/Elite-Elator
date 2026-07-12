@@ -4,7 +4,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Conversation = { id: string; name: string; lastMessage: string; otherUserId: string }
+type Conversation = {
+  id: string
+  name: string
+  lastMessage: string
+  otherUserId: string
+  unreadCount: number
+  lastReadAt: string
+  lastActivity: string
+}
 type Message = { id: string; sender_id: string; content: string; created_at: string; conversation_id: string }
 type SearchResult = { id: string; username: string; email: string }
 
@@ -41,7 +49,7 @@ export default function ChatPage() {
 
     const { data: myRows } = await supabase
       .from('conversation_participants')
-      .select('conversation_id')
+      .select('conversation_id, last_read_at')
       .eq('user_id', currentUserId)
 
     const convoIds = (myRows ?? []).map((r) => r.conversation_id)
@@ -51,6 +59,8 @@ export default function ChatPage() {
       return
     }
 
+    const lastReadMap = new Map((myRows ?? []).map((r) => [r.conversation_id, r.last_read_at]))
+
     const { data: otherRows } = await supabase
       .from('conversation_participants')
       .select('conversation_id, user_id, profiles(username)')
@@ -59,13 +69,22 @@ export default function ChatPage() {
 
     const result: Conversation[] = []
     for (const row of otherRows ?? []) {
+      const lastReadAt = lastReadMap.get(row.conversation_id) ?? new Date(0).toISOString()
+
       const { data: lastMsg } = await supabase
         .from('messages')
-        .select('content')
+        .select('content, created_at')
         .eq('conversation_id', row.conversation_id)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
+
+      const { count: unreadCount } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', row.conversation_id)
+        .neq('sender_id', currentUserId)
+        .gt('created_at', lastReadAt)
 
       result.push({
         id: row.conversation_id,
@@ -73,6 +92,9 @@ export default function ChatPage() {
         // @ts-expect-error profiles is joined as an object
         name: row.profiles?.username ?? 'Unknown',
         lastMessage: lastMsg?.content ?? 'Say hello 👋',
+        unreadCount: unreadCount ?? 0,
+        lastReadAt,
+        lastActivity: lastMsg?.created_at ?? new Date(0).toISOString(),
       })
     }
 
@@ -112,7 +134,17 @@ export default function ChatPage() {
         (payload) => {
           const newMsg = payload.new as Message
           setConversations((prev) =>
-            prev.map((c) => (c.id === newMsg.conversation_id ? { ...c, lastMessage: newMsg.content } : c))
+            prev.map((c) => {
+              if (c.id !== newMsg.conversation_id) return c
+              const isFromOther = newMsg.sender_id !== currentUserId
+              const isCurrentlyOpen = selectedId === c.id
+              return {
+                ...c,
+                lastMessage: newMsg.content,
+                lastActivity: newMsg.created_at,
+                unreadCount: isFromOther && !isCurrentlyOpen ? c.unreadCount + 1 : c.unreadCount,
+              }
+            })
           )
         }
       )
@@ -121,7 +153,7 @@ export default function ChatPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [currentUserId, conversations.length])
+  }, [currentUserId, conversations.length, selectedId])
 
   useEffect(() => {
     if (!selectedId) return
@@ -150,9 +182,9 @@ export default function ChatPage() {
     }
   }, [selectedId])
 
-  const filteredConversations = conversations.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredConversations = conversations
+    .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (b.lastActivity ?? '').localeCompare(a.lastActivity ?? ''))
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -199,21 +231,18 @@ export default function ChatPage() {
     setSearchResults(data)
   }
 
-  // Opens existing conversation if one exists, otherwise creates a new one
   const handleStartChat = async (user: SearchResult) => {
     if (!currentUserId) return
 
     const existing = conversations.find((c) => c.otherUserId === user.id)
     if (existing) {
-      setSelectedId(existing.id)
-      setSelectedName(existing.name)
+      openConversation(existing)
       setShowNewChat(false)
       setEmailQuery('')
       setSearchResults([])
       return
     }
 
-    // Double-check against the database too, in case the sidebar hasn't loaded this pair yet
     const { data: myConvoIds } = await supabase
       .from('conversation_participants')
       .select('conversation_id')
@@ -268,9 +297,21 @@ export default function ChatPage() {
     setSearchResults([])
   }
 
-  const openConversation = (c: Conversation) => {
+  const openConversation = async (c: Conversation) => {
     setSelectedId(c.id)
     setSelectedName(c.name)
+
+    setConversations((prev) =>
+      prev.map((conv) => (conv.id === c.id ? { ...conv, unreadCount: 0 } : conv))
+    )
+
+    if (currentUserId) {
+      await supabase
+        .from('conversation_participants')
+        .update({ last_read_at: new Date().toISOString() })
+        .eq('conversation_id', c.id)
+        .eq('user_id', currentUserId)
+    }
   }
 
   const handleDeleteChat = async (conversationId: string) => {
@@ -331,7 +372,7 @@ export default function ChatPage() {
             placeholder="Search or start new chat"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 20, background: '#f0f2f5' }}
+            style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 20, background: '#f0f2f5', color: '#000' }}
           />
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -350,16 +391,38 @@ export default function ChatPage() {
                 alignItems: 'center',
                 gap: 12,
                 position: 'relative',
+                background: c.unreadCount > 0 ? '#f7fdfb' : 'transparent',
               }}
             >
               <div onClick={() => openConversation(c)} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#ccc', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600 }}>
                   {c.name[0]?.toUpperCase()}
                 </div>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{c.name}</div>
-                  <div style={{ fontSize: 13, color: '#666' }}>{c.lastMessage}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: c.unreadCount > 0 ? 700 : 600 }}>{c.name}</div>
+                  <div style={{ fontSize: 13, color: c.unreadCount > 0 ? '#111' : '#666', fontWeight: c.unreadCount > 0 ? 600 : 400 }}>
+                    {c.lastMessage}
+                  </div>
                 </div>
+                {c.unreadCount > 0 && (
+                  <div
+                    style={{
+                      background: '#25D366',
+                      color: '#fff',
+                      borderRadius: '50%',
+                      minWidth: 22,
+                      height: 22,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '0 6px',
+                    }}
+                  >
+                    {c.unreadCount}
+                  </div>
+                )}
               </div>
 
               <button
@@ -414,7 +477,19 @@ export default function ChatPage() {
               </button>
               <strong>{selectedName}</strong>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 8, background: 'rgba(255,255,255,0.85)' }}>
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                backgroundColor: '#e5ded6',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Cg fill='%23d4cabd' fill-opacity='0.6'%3E%3Cpath d='M20 20c5 0 8 3 8 8s-3 8-8 8-8-3-8-8 3-8 8-8z'/%3E%3Cpath d='M70 10c3 0 5 2 5 5s-2 5-5 5-5-2-5-5 2-5 5-5z'/%3E%3Cpath d='M50 60l4 8h-8z'/%3E%3Cpath d='M85 55c4 0 6 2 6 6s-2 6-6 6-6-2-6-6 2-6 6-6z'/%3E%3Cpath d='M10 70c3 0 5 2 5 5s-2 5-5 5-5-2-5-5 2-5 5-5z'/%3E%3Cpath d='M40 5c2 0 4 2 4 4s-2 4-4 4-4-2-4-4 2-4 4-4z'/%3E%3C/g%3E%3C/svg%3E")`,
+                backgroundRepeat: 'repeat',
+              }}
+            >
               {messages.map((m) => {
                 const isMe = m.sender_id === currentUserId
                 const time = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -437,7 +512,7 @@ export default function ChatPage() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                style={{ flex: 1, padding: 10, border: 'none', borderRadius: 20 }}
+                style={{ flex: 1, padding: 10, border: 'none', borderRadius: 20, color: '#000' }}
               />
               <button onClick={handleSend} style={{ padding: '8px 16px', background: '#075E54', color: '#fff', border: 'none', borderRadius: 20 }}>
                 Send
@@ -464,7 +539,7 @@ export default function ChatPage() {
               value={emailQuery}
               onChange={(e) => setEmailQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearchUser()}
-              style={{ width: '100%', padding: 10, border: '1px solid #ddd', borderRadius: 8, marginBottom: 10 }}
+              style={{ width: '100%', padding: 10, border: '1px solid #ddd', borderRadius: 8, marginBottom: 10, color: '#000' }}
             />
             <button onClick={handleSearchUser} disabled={searching} style={{ width: '100%', padding: 10, background: '#075E54', color: '#fff', border: 'none', borderRadius: 8, marginBottom: 12 }}>
               {searching ? 'Searching...' : 'Search'}

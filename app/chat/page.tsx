@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -36,6 +36,7 @@ export default function ChatPage() {
   const [searchError, setSearchError] = useState('')
 
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -181,6 +182,11 @@ export default function ChatPage() {
       supabase.removeChannel(channel)
     }
   }, [selectedId])
+
+  // Auto-scroll to the latest message whenever messages change or a chat is opened
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, selectedId])
 
   const filteredConversations = conversations
     .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
@@ -504,6 +510,7 @@ export default function ChatPage() {
                   </div>
                 )
               })}
+              <div ref={messagesEndRef} />
             </div>
             <div style={{ padding: 12, borderTop: '1px solid #e0e0e0', display: 'flex', gap: 8, background: '#f0f2f5' }}>
               <input

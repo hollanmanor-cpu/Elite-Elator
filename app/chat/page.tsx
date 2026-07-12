@@ -1,38 +1,68 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 const mockConversations = [
   { id: '1', name: 'Jane Doe', lastMessage: 'See you tomorrow!' },
   { id: '2', name: 'John Smith', lastMessage: 'Sounds good 👍' },
+  { id: '3', name: 'Amaka Obi', lastMessage: 'Let me check and get back' },
 ]
 
-const mockMessages = [
-  { id: 'a', sender: 'them', content: 'Hey, how are you?' },
-  { id: 'b', sender: 'me', content: 'I\'m good! Working on the app right now.' },
-  { id: 'c', sender: 'them', content: 'Nice, can\'t wait to try it.' },
-]
+type Message = { id: string; sender: 'me' | 'them'; content: string }
 
 export default function ChatPage() {
   const router = useRouter()
   const supabase = createClient()
+
+  const [search, setSearch] = useState('')
+  const [messages, setMessages] = useState<Message[]>([
+    { id: 'a', sender: 'them', content: 'Hey, how are you?' },
+    { id: 'b', sender: 'me', content: 'I\'m good! Working on the app right now.' },
+    { id: 'c', sender: 'them', content: 'Nice, can\'t wait to try it.' },
+  ])
+  const [draft, setDraft] = useState('')
+
+  const filteredConversations = mockConversations.filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  )
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
   }
 
+  const handleSend = () => {
+    if (!draft.trim()) return
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), sender: 'me', content: draft.trim() },
+    ])
+    setDraft('')
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      {/* Sidebar: conversation list */}
       <div style={{ width: 280, borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 16, borderBottom: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <strong>Chats</strong>
           <button onClick={handleLogout} style={{ fontSize: 12 }}>Log out</button>
         </div>
+        <div style={{ padding: 12, borderBottom: '1px solid #e0e0e0' }}>
+          <input
+            type="text"
+            placeholder="Search conversations..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 8 }}
+          />
+        </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {mockConversations.map((c) => (
+          {filteredConversations.length === 0 && (
+            <div style={{ padding: 12, color: '#999', fontSize: 13 }}>No matches found</div>
+          )}
+          {filteredConversations.map((c) => (
             <div key={c.id} style={{ padding: 12, borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}>
               <div style={{ fontWeight: 600 }}>{c.name}</div>
               <div style={{ fontSize: 13, color: '#666' }}>{c.lastMessage}</div>
@@ -41,13 +71,12 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Main: chat window */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 16, borderBottom: '1px solid #e0e0e0' }}>
           <strong>Jane Doe</strong>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {mockMessages.map((m) => (
+          {messages.map((m) => (
             <div
               key={m.id}
               style={{
@@ -67,9 +96,12 @@ export default function ChatPage() {
           <input
             type="text"
             placeholder="Type a message..."
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             style={{ flex: 1, padding: 8, border: '1px solid #ddd', borderRadius: 8 }}
           />
-          <button style={{ padding: '8px 16px' }}>Send</button>
+          <button onClick={handleSend} style={{ padding: '8px 16px' }}>Send</button>
         </div>
       </div>
     </div>
